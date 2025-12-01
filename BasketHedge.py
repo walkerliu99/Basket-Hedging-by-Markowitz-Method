@@ -249,3 +249,127 @@ plt.show()
 #Despite its low risk, it generates a small positive mean return. 
 #Overall, the AAPL-hedged strategy remains exposed to idiosyncratic AAPL fluctuations, 
 #while the beta-neutral MVP behaves as a true low-risk, market-neutral portfolio with smooth, consistent performance.
+
+#-----------------------------------------------------------------Part 4-----------------------------------------------------------------------
+#4a We introduce a linear term -lambda*rho^T*w and minimize (w^T*Sigma*w - lambda*rho^T*w)
+def solve_mv_with_lambda(beta_target, lam):
+    P = matrix(2 * Sigma) # P = 2 Sigma
+    
+    q = matrix(-lam * mu_U.values) # q = -lambda * mu_U
+
+    A = matrix(np.vstack([beta_vec, np.ones(n)]))
+    b = matrix([beta_target, 1.0]) #Same constraints as previous setup.
+    
+    sol = solvers.qp(P, q, None, None, A, b)
+    w = np.array(sol['x']).flatten()
+    return w / np.sum(w)
+
+lam_list = [i * 0.1 for i in range(0, 11)] #Let's try some lambda values, let's say from 0.0 to 1.0 with 0.1 increment.
+
+for lam in lam_list:
+    w_lam = solve_mv_with_lambda(beta_AAPL, lam)
+    print(f"lambda={lam}, expected daily return={mu_U.values @ w_lam}") #the larger the scaler lambda, the larger the expected daily return required make it worthy of the risk.    
+
+returns_U_test = returns_test[tickers_U]
+R_AAPL_test = returns_test["AAPL"].values
+
+results_lam = {} 
+
+#we fill a dictionary of results for different lambda
+for lam in lam_list:
+    lam_str = format(lam, ".1f")
+    w_lam = solve_mv_with_lambda(beta_AAPL, lam)
+    R_lam = R_AAPL_test - returns_U_test.values @ w_lam
+    results_lam[lam] = pd.Series(R_lam, index=returns_U_test.index, name=f"Hedge_lambda_{lam_str}") 
+
+#we can visualize the PnL graph from 1/3/25 to 3/1/25
+df_lam = pd.concat(results_lam.values(), axis=1)
+print(df_lam.head())
+cum_lam = (1 + df_lam).cumprod() - 1
+cum_lam.plot(figsize=(12,6), title="Cumulative Returns for Different λ Values")
+plt.ylim(-0.4,0.4)
+plt.show()
+
+#Comment: As soon as we introduce a positive λ, the optimizer produces leveraged portfolios, leading to huge swings in cumulative return.(the larger the lambda, the bigger the swings)
+#We can compare different lambda's PnL to the portfolio of lambda = 0
+col0 = "Hedge_lambda_0.0"
+final_0 = cum_lam[col0].iloc[-1]
+
+print("Final return for λ = 0.0:", final_0)
+print("\nLambdas outperforming λ = 0.0:")
+
+for lam in lam_list:
+    lam_str = format(lam, ".1f")
+    col = f"Hedge_lambda_{lam_str}"
+    
+    if lam == 0:
+        continue
+        
+    final_lam = cum_lam[col].iloc[-1]
+    
+    if final_lam > final_0:
+        print(f"λ = {lam_str} --> outperforms (final return = {final_lam:.4f})") #see which lambda parameter perform the best
+
+#Summary: We can see from the output that lambda = 0.3 seem to be giving the best PnL on 3/1/25 with 2.57% return.
+
+#4b Dynamic Hedging with 60-day rolling hedge, weekly rebalance
+window = 60
+test_dates = returns_test.index
+
+dynamic_returns = []
+current_w = None
+
+for i, date in enumerate(test_dates):
+    if i % 5 == 0 or current_w is None:
+        idx = returns.index.get_loc(date)
+        start_idx = max(0, idx - window)
+        past = returns.iloc[start_idx:idx]
+
+        window_U = past[tickers_U]
+        window_SPY = past["SPY"]
+
+        Sigma_temp = window_U.cov().values
+
+        beta_vec_temp = []
+        for t in tickers_U:
+            cov_ts = np.cov(past[t].values, window_SPY.values)
+            beta_vec_temp.append(cov_ts[0,1] / cov_ts[1,1])
+        beta_vec_temp = np.array(beta_vec_temp)
+
+        cov_aapl_spy_temp = np.cov(past["AAPL"].values, window_SPY.values)
+        beta_AAPL_temp = cov_aapl_spy_temp[0,1] / cov_aapl_spy_temp[1,1]
+
+        P_temp = matrix(2 * Sigma_temp)
+        q_temp = matrix(np.zeros(len(tickers_U)))
+        A_temp = matrix(np.vstack([beta_vec_temp, np.ones(len(tickers_U))]))
+        b_temp = matrix([beta_AAPL_temp, 1.0])
+
+        sol_temp = solvers.qp(P_temp, q_temp, None, None, A_temp, b_temp)
+        current_w = np.array(sol_temp['x']).flatten()
+
+    R_AAPL_t = returns.loc[date, "AAPL"]
+    R_U_t = returns.loc[date, tickers_U].values
+    R_dyn_t = R_AAPL_t - R_U_t @ current_w
+    dynamic_returns.append(R_dyn_t)
+
+dynamic_hedge_series = pd.Series(dynamic_returns, index=test_dates, name="DynamicHedge")
+
+results_all = pd.concat([results, dynamic_hedge_series], axis=1)
+
+cum_all = (1 + results_all).cumprod() - 1
+cum_all.plot(figsize=(10,5), title="Cumulative Returns: Static Hedge vs Beta-Neutral vs Dynamic Hedge")
+plt.show()
+
+summary_all = pd.DataFrame({
+    "Mean": results_all.mean(),
+    "Volatility": results_all.std(),
+    "Skewness": results_all.skew(),
+    "Kurtosis": results_all.kurtosis(),
+    "VaR_95": results_all.quantile(0.05)
+})
+
+print("\nPerformance Summary (Static, BetaNeutral, Dynamic):")
+print(summary_all)
+
+beta_dynamic = compute_beta(dynamic_hedge_series)
+print("\nDynamic hedge beta vs SPY:", beta_dynamic)
