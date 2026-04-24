@@ -3,6 +3,32 @@ import pandas as pd
 import numpy as np
 from cvxopt import matrix, solvers
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+plt.style.use('dark_background')
+
+#-----------------------------------------------Data Visualization Setup-------------------------------------------------------------------------------
+def render_table(df, title):
+    fig, ax = plt.subplots(figsize=(10, len(df) * 0.6 + 1.5))
+    ax.axis('off')
+    ax.set_title(title, fontsize=14, fontweight='bold', color='white', pad=20)
+    table = ax.table(
+        cellText=df.round(6).values,
+        colLabels=df.columns,
+        rowLabels=df.index,
+        cellLoc='center',
+        loc='center'
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.2, 1.8)
+    for key, cell in table.get_celld().items():
+        cell.set_edgecolor('gray')
+        cell.set_text_props(color='white')
+        cell.set_facecolor('#1e1e1e')
+    plt.tight_layout()
+    plt.show()
+#---------------------------------------------------------------------------------------------------------------------
 
 #Preliminary Step
 tickers_U = ["FXE","EWJ","GLD","QQQ","SHV","DBA","USO","XBI","ILF","EPP","FEZ"]
@@ -216,8 +242,7 @@ summary = pd.DataFrame({
     "VaR_95": results.quantile(0.05)
 })
 
-print("\nPerformance Summary:")
-print(summary)
+render_table(summary, "Performance Summary: Hedged AAPL vs Beta-Neutral")
 
 R_SPY_test = returns_test["SPY"]
 
@@ -233,8 +258,17 @@ print("\nBetas:")
 print("Hedged AAPL beta:", beta_hedged)
 print("Beta-neutral portfolio beta:", beta_neutral)
 
-cum_returns.plot(figsize=(10,5), title="Cumulative Returns") #Plot cumulative PnL
+fig, ax = plt.subplots(figsize=(12, 6))
+cum_returns.plot(ax=ax, linewidth=1.5)
+ax.set_title("Cumulative Returns", fontsize=14, fontweight='bold')
+ax.set_xlabel("Date")
+ax.set_ylabel("Cumulative Return")
+ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))  # tick every week
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+plt.xticks(rotation=45)
+plt.tight_layout()
 plt.show()
+
 
 #Interpretation of Summary Statistics:
 #Over the out-of-sample period from January 3 to March 30, 2025, the two hedging strategies behave very differently.
@@ -284,11 +318,21 @@ for lam in lam_list:
 
 #we can visualize the PnL graph from 1/3/25 to 3/1/25
 df_lam = pd.concat(results_lam.values(), axis=1)
-print(df_lam.head())
 cum_lam = (1 + df_lam).cumprod() - 1
-cum_lam.plot(figsize=(12,6), title="Cumulative Returns for Different λ Values")
-plt.ylim(-0.4,0.4)
+
+fig, ax = plt.subplots(figsize=(12, 6))
+cum_lam.plot(ax=ax, linewidth=1.5)
+ax.set_title("Cumulative Returns for Different λ Values", fontsize=14, fontweight='bold')
+ax.set_xlabel("Date")
+ax.set_ylabel("Cumulative Return")
+ax.set_ylim(-0.4, 0.4)
+ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+plt.xticks(rotation=45)
+plt.legend(loc='upper left', fontsize=8)
+plt.tight_layout()
 plt.show()
+
 
 #Comment: As soon as we introduce a positive λ, the optimizer produces leveraged portfolios, leading to huge swings in cumulative return.(the larger the lambda, the bigger the swings)
 #We can compare different lambda's PnL to the portfolio of lambda = 0
@@ -357,8 +401,19 @@ dynamic_hedge_series = pd.Series(dynamic_returns, index=test_dates, name="Dynami
 results_all = pd.concat([results, dynamic_hedge_series], axis=1)
 
 cum_all = (1 + results_all).cumprod() - 1
-cum_all.plot(figsize=(10,5), title="Cumulative Returns: Static Hedge vs Beta-Neutral vs Dynamic Hedge")
+
+fig, ax = plt.subplots(figsize=(12, 6))
+cum_all.plot(ax=ax, linewidth=1.5)
+ax.set_title("Cumulative Returns: Static Hedge vs Beta-Neutral vs Dynamic Hedge", fontsize=14, fontweight='bold')
+ax.set_xlabel("Date")
+ax.set_ylabel("Cumulative Return")
+ax.xaxis.set_major_locator(mdates.WeekdayLocator(interval=1))
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+plt.xticks(rotation=45)
+plt.legend(loc='best', fontsize=10)
+plt.tight_layout()
 plt.show()
+
 
 summary_all = pd.DataFrame({
     "Mean": results_all.mean(),
@@ -368,8 +423,8 @@ summary_all = pd.DataFrame({
     "VaR_95": results_all.quantile(0.05)
 })
 
-print("\nPerformance Summary (Static, BetaNeutral, Dynamic):")
-print(summary_all)
+render_table(summary_all, "Performance Summary: Static Hedge vs Dynamic Hedge vs Beta-Neutral")
+
 
 beta_dynamic = compute_beta(dynamic_hedge_series)
 print("\nDynamic hedge beta vs SPY:", beta_dynamic)
